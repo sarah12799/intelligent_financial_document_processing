@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validation PDF avec BBoxes</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- En-tête avec boutons d'upload et extraction -->
+    <header class="header">
+        <div class="upload-section" id="drop-zone">
+            <input type="file" id="pdf-upload" accept="application/pdf">
+            <button id="upload-btn">Charger le fichier</button>
+            <button id="extract-btn" disabled>Lancer l'extraction</button>
+            <div id="file-name" class="file-name"></div>
+            <!-- Popup de progression -->
+            <div id="progress-popup" class="progress-popup hidden">
+                <div class="progress-content">
+                    <h3>Progression de l'extraction</h3>
+                    <div id="progress-messages"></div>
+                    <progress id="progress-bar" value="0" max="100"></progress>
+                    <button id="close-popup">Fermer</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Section principale divisée en deux colonnes -->
+    <main class="container">
+        <!-- Colonne gauche : Image avec bboxes et barre d'outils -->
+        <div class="column image-column">
+            <select id="page-select">
+                <!-- Options générées dynamiquement -->
+            </select>
+            <div class="canvas-container">
+                <canvas id="image-canvas"></canvas>
+            </div>
+            <div class="toolbar">
+                <button id="zoom-in-btn" title="Zoom avant">+</button>
+                <button id="zoom-out-btn" title="Zoom arrière">-</button>
+            </div>
+        </div>
+        <!-- Colonne droite : Tableau éditable -->
+        <div class="column table-column">
+            <div class="table-container">
+                <table id="data-table">
+                    <thead>
+                        <tr>
+                            <th>Compte</th>
+                            <th>Solde AN</th>
+                            <th>Solde</th>
+                            <th>Débit</th>
+                            <th>Crédit</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <button id="check-formula-btn">Vérifier la balance</button>
+            <button id="validate-btn">Valider les corrections</button>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

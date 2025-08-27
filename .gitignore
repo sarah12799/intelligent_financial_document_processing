@@ -1,0 +1,24 @@
+# --- Environnements virtuels ---
+venv/
+.env
+.env.*
+
+# --- Dossiers de travail / temporaires ---
+uploads/
+data/
+images_pdf/
+
+# --- Fichiers système / IDE ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# macOS / Windows cache
+.DS_Store
+Thumbs.db

@@ -100,5 +100,42 @@ def get_tokens_ids(data, tokens_json="tokens.json"):
 
     return tokens_dict
 
+###fonctions pour le RAG
 
+def extract_pdf_tables(pdf_path: str) -> list[dict]:
+    """
+    Extract tables from a PDF file.
+    Returns a list of dictionaries, each containing page number, table index, and rows.
+    """
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF file '{pdf_path}' not found.")
+    
+    all_tables = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages):
+            tables = page.extract_tables()
+            for table_index, table in enumerate(tables):
+                cleaned_table = []
+                for row in table:
+                    cleaned_row = [cell.strip() if cell else "" for cell in row]
+                    cleaned_table.append(cleaned_row)
+                all_tables.append({
+                    "page": page_num,
+                    "table_index": table_index,
+                    "rows": cleaned_table
+                })
+    return all_tables
 
+def normalize_table_rows(rows: list[list[str]]) -> list[list[str]]:
+    """
+    Normalize table rows where cells may contain multiple lines (\\n).
+    Returns a list of normalized rows, each representing a logical row.
+    """
+    normalized_rows = []
+    for row in rows:
+        split_cells = [cell.split("\n") for cell in row]
+        max_lines = max(len(cell) for cell in split_cells)
+        for i in range(max_lines):
+            new_row = [cell[i] if i < len(cell) else "" for cell in split_cells]
+            normalized_rows.append(new_row)
+    return normalized_rows

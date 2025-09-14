@@ -2,7 +2,8 @@ import os
 import json
 from dotenv import load_dotenv
 from openai import OpenAI
-from services.utils import clean_json_output
+
+from .utils import clean_json_output
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
@@ -11,13 +12,27 @@ if not api_key:
 
 client = OpenAI(api_key=api_key)
 
-def build_prompt(tokens_dict):
+
+def build_prompt(tokens_dict, examples=None):
     table_str = "\n".join([f"{tid}: {txt}" for tid, txt in tokens_dict.items()])
+
+    examples_str = ""
+    if examples:
+        formatted = json.dumps(examples, indent=2, ensure_ascii=False)
+        examples_str = f"""
+Voici des exemples d’extractions correctes issues de documents similaires :
+{formatted}
+
+Utilise-les comme guide, mais adapte strictement aux tokens actuels.
+"""
+
     return f"""
 Tu es un assistant expert en analyse comptable.
 
 On te donne une liste de tokens extraits d'un document PDF :
 {table_str}
+
+{examples_str}
 
 Ta mission :
 1. Identifier les lignes comptables dans l'ordre exact où elles apparaissent dans les tokens.
@@ -31,8 +46,10 @@ Ta mission :
 6. Respecte strictement ce format pour chaque champ, sans exception.
 7. Ne modifie pas l'ordre des lignes comptables détectées.
 """
-def process_tokens(tokens_dict, model="gpt-4-0125-preview"):
-    prompt = build_prompt(tokens_dict)
+
+
+def process_tokens(tokens_dict, model="gpt-4-0125-preview", examples=None):
+    prompt = build_prompt(tokens_dict, examples=examples)
 
     response = client.chat.completions.create(
         model=model,

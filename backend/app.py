@@ -1,3 +1,4 @@
+# app.py
 import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -5,12 +6,20 @@ import os
 from pathlib import Path
 from services.utils import convert_pdf_to_images
 from services.hash_service import sha256_bytes
-from services.pdf_service import extract_pdf_words_boxes, get_tokens_ids
+from services.pdf_service import extract_pdf_words_boxes, get_tokens_ids, extract_pdf_tables
 from services.llm_service import process_tokens
-from services.db_service import get_extraction_by_id, insert_extraction, update_extraction_with_correction
+from services.db_service import get_extraction_by_id, update_extraction_with_correction, insert_placeholder, complete_extraction, store_embeddings
+from services.chunking_service import create_chunks
+from services.embedding_service import generate_embeddings
+from services.similarity_service import get_most_similar_document_ids, get_similar_examples
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
-CORS(app, resources={r"/extract": {"origins": "http://127.0.0.1:8081"}, r"/correct": {"origins": "http://127.0.0.1:8081"}})  # Autoriser 127.0.0.1:8081
+CORS(app, resources={r"/extract": {"origins": "http://127.0.0.1:8081"}, r"/correct": {"origins": "http://127.0.0.1:8081"}})
 
 UPLOAD_DIR = "uploads"
 DATA_DIR = "../frontend/data"
@@ -18,6 +27,29 @@ IMAGE_DIR = "../frontend/images_pdf"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(IMAGE_DIR, exist_ok=True)
+
+def get_similar_documents_examples(document_id: str, embedding_vectors: list[list[float]], top_k_docs: int = 3, top_k_per_doc: int = 3):
+    """
+    Récupère des exemples d'extraction depuis les documents similaires.
+    Retourne une liste d'exemples pour alimenter le prompt LLM.
+    """
+    try:
+        # Vérifier que document_id est défini
+        if not document_id:
+            raise ValueError("document_id is not provided or empty")
+        
+        # Obtenir les IDs des documents similaires
+        similar_doc_ids = get_most_similar_document_ids(embedding_vectors, exclude_doc_id=document_id, top_k=top_k_docs)
+        print(f"Documents similaires trouvés : {similar_doc_ids}")
+        
+        examples = get_similar_examples(similar_doc_ids, top_k_per_doc=top_k_per_doc)
+        
+        print(f"Exemples récupérés : {len(examples)} lignes")
+        return examples[:6]  # Maximum 6 exemples au total pour limiter les tokens
+        
+    except Exception as e:
+        print(f"Erreur lors de la récupération des exemples similaires : {str(e)}")
+        return []
 
 @app.route("/extract", methods=["POST"])
 def extract():
@@ -31,7 +63,7 @@ def extract():
     # 1) Lire les bytes et calculer le hash → documentId
     file_bytes = file.read()
     document_id = sha256_bytes(file_bytes)
-    print(f"Calculé documentId : {document_id}")  # Log pour traçabilité
+    print(f"Calculé documentId : {document_id}")
 
     # 2) Sauvegarder le PDF localement pour debug/audit
     filepath = os.path.join(UPLOAD_DIR, f"{document_id}.pdf")
@@ -44,8 +76,9 @@ def extract():
         tokens_data = extract_pdf_words_boxes(filepath)
         tokens_dict = get_tokens_ids(tokens_data)
         print(f"Extraction des tokens réussie pour {document_id}")
+        
         # Sauvegarde des tokens avec bboxes dans frontend/data
-        pdf_filename = Path(file.filename).stem  # Nom du fichier sans extension
+        pdf_filename = Path(file.filename).stem
         tokens_json_path = Path(DATA_DIR) / f"{pdf_filename}.json"
         with open(tokens_json_path, "w", encoding="utf-8") as f:
             json.dump(tokens_data, f, indent=2, ensure_ascii=False)
@@ -67,35 +100,62 @@ def extract():
     existing = get_extraction_by_id(document_id)
     if existing:
         print(f"Document {document_id} déjà existant, utilisation de finalData existant")
-        results = existing.get("finalData", [])  # Utiliser finalData existant
+        results = existing.get("finalData", [])
     else:
-        # 6) Passage LLM (seulement si nouveau)
+        # **NOUVEAU : Document inexistant - Workflow avec RAG**
+        print(f"Nouveau document {document_id}, lancement du workflow RAG")
+        
+        # 6) Insérer un placeholder pour réserver l'ID
         try:
-            results = process_tokens(tokens_dict)
+            insert_placeholder(document_id, file.filename)
+            print(f"Placeholder inséré pour {document_id}")
+        except Exception as e:
+            print(f"Erreur lors de l'insertion du placeholder : {str(e)}")
+            return jsonify({"error": "Erreur lors de l'insertion du placeholder"}), 500
+
+        # 7) Générer et stocker les embeddings
+        try:
+            tables = extract_pdf_tables(filepath)
+            chunks = create_chunks(tables)
+            embedding_vectors = generate_embeddings(chunks, api_key=api_key)
+            store_embeddings(document_id, chunks, embedding_vectors)
+            print(f"Embeddings générés et stockés pour {document_id}")
+        except Exception as e:
+            print(f"Erreur lors du stockage des embeddings : {str(e)}")
+            # Continue même si les embeddings échouent
+
+        # 8) Récupérer des exemples depuis les documents similaires
+        examples = get_similar_documents_examples(document_id, embedding_vectors)
+        
+        # 9) Passage LLM avec exemples (si disponibles)
+        try:
+            if examples:
+                print(f"Utilisation de {len(examples)} exemples pour guider l'extraction")
+                results = process_tokens(tokens_dict, examples=examples)
+            else:
+                print("Aucun exemple disponible, extraction sans guide")
+                results = process_tokens(tokens_dict)
             print(f"Processing LLM réussi pour {document_id}")
         except Exception as e:
             print(f"Erreur lors du processing LLM : {str(e)}")
             return jsonify({"error": "Erreur lors du processing LLM"}), 500
 
-        # 7) Insertion MongoDB (seulement si nouveau)
+        # 10) Mise à jour avec les résultats finaux
         try:
-            inserted_doc = insert_extraction(
-                document_id=document_id,
-                file_name=file.filename,   # informatif
-                raw_data=results,
-                meta={"model": "gpt-4-0125-preview"}
-            )
-            print(f"Insertion MongoDB réussie pour {document_id}")
+            # Convert tokens_dict to a list of [id, text] pairs to ensure string keys
+            raw_data = [{"id": str(k), "text": v} for k, v in tokens_dict.items()]
+            updated_doc = complete_extraction(document_id, raw_data, results)
+            print(f"Mise à jour avec extraction finale réussie pour {document_id}")
         except Exception as e:
-            print(f"Erreur lors de l'insertion MongoDB : {str(e)}")
-            return jsonify({"error": "Erreur lors de l'insertion dans la base de données"}), 500
+            print(f"Erreur lors de la mise à jour finale : {str(e)}")
+            return jsonify({"error": "Erreur lors de la mise à jour finale"}), 500
 
-    # 8) Préparer la réponse avec les chemins relatifs des images et documentId
+    # 11) Préparer la réponse avec les chemins relatifs des images et documentId
     base_path = Path("../frontend")
     response_data = {
         "data": results,
         "images": [str(img_path.relative_to(base_path)) for img_path in image_paths],
-        "documentId": document_id  # Toujours inclure l'ID
+        "documentId": document_id
     }
 
     return jsonify(response_data)

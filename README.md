@@ -1,10 +1,12 @@
 
 🧾 Intelligent Financial Document Processing
 Automating financial data extraction and validation with AI + LLMs
+
 Finance teams often spend hours copying balances, accounts, and credits from PDFs or Excel files. The process is slow, error-prone, and delays timely, data-driven decisions.
  This project is a prototype of an intelligent extraction application that automates this workflow while ensuring reliability through a validation & correction interface.
 
 ✨ Key Features
+
 🤖 AI-powered extraction: balances, debits, credits, accounts, prior balances
 
 
@@ -18,6 +20,7 @@ Finance teams often spend hours copying balances, accounts, and credits from PDF
 
 
 🏗️ Architecture
+
 Ingestion (PDF) 
      ↓
 Extraction (pdfplumber, Regex, GPT-4 prompts) 
@@ -28,10 +31,12 @@ Correction Storage (MongoDB: files, edits, vectors)
      ↓
 Retrieval & Continuous Improvement (LangChain + Embeddings)
 
-<img width="1347" height="584" alt="Capture d'écran 2025-09-03 161107" src="https://github.com/user-attachments/assets/b660355c-9bd2-4f4b-8b28-81226271bd1d" />
+![1756912708556](https://github.com/user-attachments/assets/49f8d0b8-e694-43eb-9bdd-d01e51cc6239)
+
 
 
 ⚙️ Tech Stack
+
 Backend & Prototype UI: Flask, HTML/CSS/JavaScript
 
 
